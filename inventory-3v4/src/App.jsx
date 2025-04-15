@@ -81,7 +81,6 @@ function App() {
     comments: ''
   })
   const [itemQuantities, setItemQuantities] = useState({})
-  const [orderSuccess, setOrderSuccess] = useState(false)
   const [orderError, setOrderError] = useState('')
   const [openBillsDialog, setOpenBillsDialog] = useState(false)
   const [recentBills, setRecentBills] = useState([])
@@ -112,7 +111,6 @@ function App() {
   const [itemComment, setItemComment] = useState('')
   const [isUpdatingComment, setIsUpdatingComment] = useState(false)
   const [commentError, setCommentError] = useState('')
-  const [transactionStatus, setTransactionStatus] = useState('')
   const [openTransactionMonitor, setOpenTransactionMonitor] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -131,6 +129,13 @@ function App() {
   useEffect(() => {
     filterItems()
   }, [searchTerm, items])
+
+  // Add new useEffect for tab changes
+  useEffect(() => {
+    if (currentView === 'inventory') {
+      fetchItems()
+    }
+  }, [currentView])
 
   async function fetchItems() {
     setLoading(true)
@@ -192,10 +197,20 @@ function App() {
       return
     }
 
-    const searchLower = searchTerm.toLowerCase()
+    const normalizeText = (text) => {
+      if (!text) return ''
+      return text
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+        .replace(/[^a-z0-9]/g, '') // Remove special characters
+    }
+
+    const searchNormalized = normalizeText(searchTerm)
     const filtered = items.filter(item => 
-      item.item_name?.toLowerCase().includes(searchLower) ||
-      item.article_number?.toLowerCase().includes(searchLower)
+      normalizeText(item.item_name)?.includes(searchNormalized) ||
+      normalizeText(item.article_number)?.includes(searchNormalized) ||
+      normalizeText(item.carton_number)?.includes(searchNormalized)
     )
     setFilteredItems(filtered)
   }
@@ -472,7 +487,6 @@ function App() {
 
   const createOrder = async () => {
     try {
-      setTransactionStatus('Creating order...')
       const result = await transactionManager.executeWithRetry(
         async () => {
           // Verify current quantities before proceeding
@@ -608,7 +622,6 @@ function App() {
         }
       )
 
-      setTransactionStatus('Order created successfully!')
       setCart([])
       setItemQuantities({})
       setCustomerInfo({
@@ -618,7 +631,6 @@ function App() {
         billId: '',
         comments: ''
       })
-      setOrderSuccess(true)
       setOpenCartDialog(false)
       setSuccessfulBillId(result.bill_id)
       
@@ -629,6 +641,10 @@ function App() {
         billId: result.bill_id
       })
       
+      // Exit order mode automatically after successful order
+      setIsOrderMode(false)
+      setSelectedItems([])
+      
       // Refresh data for all tables
       await Promise.all([
         fetchItems(),
@@ -637,7 +653,6 @@ function App() {
       ])
     } catch (error) {
       console.error('Error creating order:', error)
-      setTransactionStatus(`Error: ${error.message}`)
       setOrderError(error.message)
       setErrorMessage('Error creating order. Please try again later.')
     }
@@ -973,7 +988,10 @@ function App() {
   }
 
   const handleAddComment = (item) => {
-    setSelectedItemForComment(item)
+    setSelectedItemForComment({
+      ...item,
+      item_table: selectedTable
+    })
     setItemComment(item.item_comment || '')
     setOpenCommentDialog(true)
   }
@@ -1442,34 +1460,7 @@ function App() {
           </>
         )}
 
-        {currentView === 'bills' && <BillsView />}
-
-        {/* Success Dialog */}
-        <Dialog
-          open={orderSuccess}
-          onClose={() => {
-            setOrderSuccess(false)
-            setIsOrderMode(false)
-            setSuccessfulBillId('')
-          }}
-          PaperProps={{
-            sx: { borderRadius: '12px' }
-          }}
-        >
-          <DialogTitle>Order Successful</DialogTitle>
-          <DialogContent>
-            <Typography>
-              Order has been created successfully with Bill ID: {successfulBillId}
-            </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => {
-              setOrderSuccess(false)
-              setIsOrderMode(false)
-              setSuccessfulBillId('')
-            }}>Close</Button>
-          </DialogActions>
-        </Dialog>
+        {currentView === 'bills' && <BillsView isVisible={currentView === 'bills'} />}
 
         {/* Cart Dialog */}
         <Dialog 
@@ -2224,35 +2215,6 @@ function App() {
             </Button>
           </DialogActions>
         </Dialog>
-
-        {/* Transaction Status Alert */}
-        {transactionStatus && (
-          <Alert 
-            severity={transactionStatus.includes('Error') ? 'error' : 'success'} 
-            sx={{ 
-              mb: 2,
-              borderRadius: '8px',
-              '& .MuiAlert-message': {
-                width: '100%',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }
-            }}
-          >
-            <Typography>{transactionStatus}</Typography>
-            {transactionStatus.includes('Error') && (
-              <Button
-                size="small"
-                color="inherit"
-                onClick={() => setTransactionStatus('')}
-                sx={{ ml: 2 }}
-              >
-                Dismiss
-              </Button>
-            )}
-          </Alert>
-        )}
 
         {/* Transaction Monitor */}
         <TransactionMonitor 
